@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Defs>
+	<HarmonyProfiler.CfgDef>
+		<defName>harmonyProfilerConfig</defName>
+		
+		<workerFields>
+			<li>hediffClass</li>
+			<li>thingClass</li>
+			<li>giverClass</li>
+			<li>driverClass</li>
+			<li>conditionClass</li>
+			<li>workerClass</li>
+			<li>thoughtClass</li>
+		</workerFields>
+		
+		<workerGetters>
+			<li>get_Worker</li>
+		</workerGetters>
+		
+	</HarmonyProfiler.CfgDef>
+</Defs>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ModMetaData>
+	<name>HarmonyProfiler</name>
+	<supportedVersions><li>1.0</li></supportedVersions>
+	<author>PirateBY</author>
+	<description>Profile mods, harmony patches or custom methods, classes, namespaces</description>
+</ModMetaData>
