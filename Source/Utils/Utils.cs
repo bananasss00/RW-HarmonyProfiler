@@ -13,7 +13,7 @@ namespace HarmonyProfiler
             string.Join(",", method.GetParameters().Select(o => $"{o.ParameterType.Name} {o.Name}").ToArray());
 
         public static string GetMethodNameString(this MethodBase method) =>
-            $"{method.ReflectedType./*Full*/Name}:{method.Name}";
+            $"{method.DeclaringType./*Full*/Name}:{method.Name}";
 
         public static string GetMethodFullString(this MethodBase method) =>
             $"{method.GetMethodNameString()}({method.GetParametersString()})";
@@ -24,11 +24,16 @@ namespace HarmonyProfiler
 
         public static IEnumerable<Type> GetClassesFromNamespace(string @namespace)
         {
+            bool isMask = @namespace.Contains("*");
+            if (isMask)
+            {
+                @namespace = @namespace.Replace("*", "");
+            }
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 foreach (var type in asm.GetTypes())
                 {
-                    if (type.IsClass && !type.IsGenericType && type.Namespace == @namespace)
+                    if (type.IsClass && !type.IsGenericType && type.Namespace != null && (isMask ? type.Namespace.StartsWith(@namespace) : type.Namespace.Equals(@namespace)))
                     {
                         yield return type;
                     }

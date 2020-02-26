@@ -57,13 +57,17 @@ namespace HarmonyProfiler.Profiler
             var methods = type.GetMethods(AccessTools.all).Where(x => x.Name.Equals(arr[1]));
             foreach (var m in methods)
             {
-                yield return m;
+                // not generic and inherited methods only from current assembly(was hook Object.GetHashCode, Equals)
+                if (!m.IsGenericMethod && m.Module == m.ReflectedType?.Module)
+                {
+                    yield return m;
+                }
             }
         }
 
         private static bool TryAddProfiler(MethodBase method)
         {
-            if (PatchedMethods.Add(method) && method != PatchHandler.PatchStartMethod && method != PatchHandler.PatchStopMethod)
+            if (PatchedMethods.Add(method)/* && !method.IsProfilerMethod()*/)
             {
                 if (!TestMethodForPatch(method))
                 {
@@ -73,6 +77,7 @@ namespace HarmonyProfiler.Profiler
 
                 try
                 {
+                    //File.AppendAllText($"z:/aaa.log", method.GetMethodFullString() + "\n");
                     if (Settings.Get().debug)
                     {
                         Log.Error($"[TryAddProfiler] Try patch method => {method.GetMethodFullString()}");
@@ -90,6 +95,8 @@ namespace HarmonyProfiler.Profiler
             return false;
         }
 
+        public static int PatchedMethodsCount() => PatchedMethods.Count;
+
         public static void UnpatchAll()
         {
             //Harmony.UnpatchAll(HarmonyBrowserId);
@@ -98,7 +105,7 @@ namespace HarmonyProfiler.Profiler
                 try
                 {
                     HarmonyMain.Instance.Unpatch(methodBase, HarmonyPatchType.All, HarmonyMain.Id);
-                    Logger.Add($"Unpatched: {methodBase.GetMethodNameString()}");
+                    Logger.Add($"Unpatched: {methodBase.GetMethodFullString()}");
                 }
                 catch (Exception e)
                 {
@@ -111,6 +118,40 @@ namespace HarmonyProfiler.Profiler
             PatchHandler.Reset();
             PatchHandler.StopCollectData();
             PatchedMethods.Clear();
+        }
+
+        public static void UnpatchByRule(float timingLess)
+        {
+            var records = PatchHandler.GetProfileRecordsSorted().Where(x => x.IsValid && x.AvgTime <= timingLess).Select(x => x.Method);
+            PatchHandler.StopCollectData();
+            int unpatched = 0;
+            foreach (var methodBase in records)
+            {
+                try
+                {
+                    HarmonyMain.Instance.Unpatch(methodBase, HarmonyPatchType.All, HarmonyMain.Id);
+                    Logger.Add($"Unpatched: {methodBase.GetMethodFullString()}");
+                    PatchedMethods.Remove(methodBase);
+                    PatchHandler.RemoveProfiledRecords(methodBase);
+                    unpatched++;
+                }
+                catch (Exception e)
+                {
+                    Logger.Add($"[ERROR][UnpatchByRule] Exception: {e.Message}; method => {methodBase.GetMethodFullString()}");
+                    Log.Error($"[ERROR][UnpatchByRule] Exception: {e.Message}; method => {methodBase.GetMethodFullString()}");
+                }
+                
+            }
+
+            if (unpatched > 0)
+            {
+                Log.Warning($"Unpatched methods by rule: {unpatched}");
+            }
+
+            if (PatchedMethods.Count > 0)
+            {
+                PatchHandler.StartCollectData();
+            }
         }
         #endregion
 
@@ -132,13 +173,13 @@ namespace HarmonyProfiler.Profiler
 
                     if (TryAddProfiler(method))
                     {
-                        Logger.Add($"Patched: {methodName}");
+                        Logger.Add($"Patched: {method.GetMethodFullString()} asm: {method.Module.Assembly.GetName().Name}");
                         patchedCount++;
                     }
-                    else
-                    {
-                        Logger.Add($"Already patched: {methodName}");
-                    }
+                    //else
+                    //{
+                    //    Logger.Add($"Already patched: {methodName}");
+                    //}
                 }
             }
             Log.Warning($"Patched methods: {patchedCount}");
@@ -168,8 +209,7 @@ namespace HarmonyProfiler.Profiler
                     Logger.Add($"Patch: [{patchOwner}] {patchMethod.GetMethodFullString()}");
                     patchedCount++;
                 }
-                else
-                    Logger.Add($"Already patched: [{patchOwner}] {patchMethod.GetMethodFullString()}");
+                //else Logger.Add($"Already patched: [{patchOwner}] {patchMethod.GetMethodFullString()}");
             }
             PatchHandler.StartCollectData();
             Log.Warning($"Patched methods: {patchedCount}");
@@ -224,22 +264,25 @@ namespace HarmonyProfiler.Profiler
                 var defClassMethods = defClass.GetMethods(AccessTools.all);
                 foreach (var methodInfo in defClassMethods)
                 {
-                    var declaringType = methodInfo.DeclaringType;
-                    if (declaringType == null)
-                        continue;
-                    if (methodInfo.IsGenericMethod || methodInfo.IsAbstract)
-                        continue;
-                    if (!declaringType.Assembly.Equals(modAssembly)) // !declaringType.AssemblyQualifiedName.Contains("Assembly-CSharp")
-                        continue;
-
-                    if (!skipInherited || methodInfo.DeclaringType == defClass) 
+                    try
                     {
-                        patches.Add($"{declaringType.FullName}:{methodInfo.Name}");
+                        var declaringType = methodInfo.DeclaringType;
+                        if (declaringType == null)
+                            continue;
+                        if (methodInfo.IsGenericMethod || methodInfo.IsAbstract)
+                            continue;
+                        if (!declaringType.Assembly.Equals(modAssembly)) // !declaringType.AssemblyQualifiedName.Contains("Assembly-CSharp")
+                            continue;
+
+                        if (!skipInherited || methodInfo.DeclaringType == defClass) 
+                        {
+                            patches.Add($"{declaringType.FullName}:{methodInfo.Name}");
+                        }
                     }
-                    //else
-                    //{
-                    //    Log.Warning($"Skip: [{defClass.FullName}] {declaringType.FullName}:{methodInfo.Name}");
-                    //}
+                    catch (Exception ex) // DeclaringType can cause exception if method use types from not existing assemblies
+                    {
+                        Log.Error($"Skip: {methodInfo.Name} => {ex.Message}");
+                    }
                 }
             }
         }

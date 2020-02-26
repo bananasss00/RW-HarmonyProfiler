@@ -6,6 +6,7 @@ using Harmony;
 using UnityEngine;
 using Verse;
 
+// credits: https://github.com/UnlimitedHugs/RimworldHugsLib
 namespace HarmonyProfiler.UI
 {
     /// <summary>

@@ -20,7 +20,7 @@ namespace HarmonyProfiler
             cfgDef = DefDatabase<CfgDef>.GetNamed("harmonyProfilerConfig");
         }
 
-        public const string CustomExampleStr = "Namespace.Class1:Method1\nNamespace.Class1\nNamespace";
+        public const string CustomExampleStr = "Namespace.Class1:Method1\nNamespace.Class1\nNamespace\nNamespace.*";
 
         public string profileInstances = "";
         public string profileMods = "";
@@ -32,5 +32,9 @@ namespace HarmonyProfiler
         public bool sortByMemAlloc = false;
         public bool debug = false;
         public CfgDef cfgDef;
+
+        public bool perfomanceMode = false;
+        public float ruleTiming = 0.01f;
+        public string ruleTimingBuf;
     }
 }

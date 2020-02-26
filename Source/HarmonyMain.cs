@@ -52,7 +52,7 @@ namespace HarmonyProfiler
         public static Dictionary<MethodBase, Patches> GetPatches(string[] owners, bool skipGenericMethods)
         {
             var patches = Instance.GetPatchedMethods()
-                .Where(method => !skipGenericMethods || !method.ReflectedType.IsGenericType)
+                .Where(method => !skipGenericMethods || !method.DeclaringType.IsGenericType)
                 .Select(method => new {method, patches = Instance.GetPatchInfo(method)});
 
             return owners == null

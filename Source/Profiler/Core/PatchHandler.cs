@@ -2,26 +2,35 @@
 using System.Linq;
 using System.Reflection;
 using Harmony;
+using Verse;
 
 namespace HarmonyProfiler.Profiler.Core
 {
     public static class PatchHandler
     {
+        private static Dictionary<int, StopwatchRecord> _profiledMethods = new Dictionary<int, StopwatchRecord>();
+
+        public static bool IsProfilerMethod(this MethodBase method) =>
+            method.MethodHandle == PatchStartMethod.MethodHandle ||
+            method.MethodHandle == PatchStopMethod.MethodHandle;
+
         public static bool Active { get; private set; } = false;
 
         public static void StartCollectData() => Active = true;
 
         public static void StopCollectData() => Active = false;
 
+        public static int RemoveProfiledRecords(MethodBase method) => _profiledMethods.RemoveAll(x => x.Value.Method == method);
+        
+        public static int ProfiledRecordsCount() => _profiledMethods.Count;
+
         public static void Reset()
         {
             bool oldState = Active;
             Active = false;
-            ProfiledMethods.Clear();
+            _profiledMethods.Clear();
             Active = oldState;
         }
-
-        public static Dictionary<int, StopwatchRecord> ProfiledMethods { get; } = new Dictionary<int, StopwatchRecord>();
 
         public static readonly MethodInfo PatchStartMethod =
             AccessTools.Method(typeof(PatchHandler), nameof(PatchHandler.Patch_Start));
@@ -35,10 +44,10 @@ namespace HarmonyProfiler.Profiler.Core
             if (!Active) return;
             
             int ptr = __originalMethod.MethodHandle.Value.ToInt32(); // faster then gethashcode?
-            if (!ProfiledMethods.TryGetValue(ptr, out __state))
+            if (!_profiledMethods.TryGetValue(ptr, out __state))
             {
                 __state = new StopwatchRecord(__originalMethod, Settings.Get().collectMemAlloc);
-                ProfiledMethods.Add(ptr, __state);
+                _profiledMethods.Add(ptr, __state);
             }
             __state.Start();
         }
@@ -59,7 +68,7 @@ namespace HarmonyProfiler.Profiler.Core
             Active = false;
 
             bool sortByMemAlloc = Settings.Get().sortByMemAlloc;
-            List<StopwatchRecord> records = ProfiledMethods.Values
+            List<StopwatchRecord> records = _profiledMethods.Values
                 .Where(x => x.IsValid)
                 .Select(x => x.Clone())
                 .OrderByDescending(x => !sortByMemAlloc ? x.TimeSpent : x.AllocKB)

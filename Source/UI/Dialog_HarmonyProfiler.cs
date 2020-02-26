@@ -35,10 +35,12 @@ namespace HarmonyProfiler.UI
 
 			lister.Begin(rect);
 		    lister.ColumnWidth = 400;
+            lister.verticalSpacing = 1f;
 
             DrawInstanceProfiler(lister, settings);
             DrawModsProfiler(lister, settings);
             DrawCustomProfiler(lister, settings);
+            DrawSettings(lister, settings);
             DrawOther(lister, settings);
 
             lister.NewColumn();
@@ -54,8 +56,7 @@ namespace HarmonyProfiler.UI
             Rect buttonRect1 = lister.GetRect(Text.LineHeight),
                 buttonRect2 = buttonRect1;
 
-            buttonRect1.width /= 2;
-            buttonRect2.width /= 2;
+            buttonRect2.width = buttonRect1.width /= 2;
             buttonRect2.x = buttonRect1.xMax;
 
             if (Widgets.ButtonText(buttonRect1, "Get instances"))
@@ -105,11 +106,11 @@ namespace HarmonyProfiler.UI
             {
                 lister.CheckboxLabeled("Allow Core assembly", ref settings.allowCoreAsm);
                 lister.CheckboxLabeled("Allow class inherited methods", ref settings.allowInheritedMethods);
-                if (lister.ButtonText($"Profile custom methods"))
+                if (lister.ButtonText($"Profile custom methods", Text.LineHeight))
                 {
                     var methods = new HashSet<string>();
-                    var methodsAndClasses = settings.profileCustom.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var s in methodsAndClasses)
+                    var list = settings.profileCustom.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var s in list)
                     {
                         // it's method
                         if (s.Contains(":"))
@@ -126,6 +127,8 @@ namespace HarmonyProfiler.UI
                             }
                             else // parse namespace
                             {
+                                var classes = Utils.GetClassesFromNamespace(s);
+                                if (!classes.Any()) Log.Error($"[HarmonyProfiler] Found 0 results for namespace:'{s}'");
                                 foreach (var @class in Utils.GetClassesFromNamespace(s))
                                 {
                                     methods.AddDefMethodsAdvanced(@class, settings.allowCoreAsm, !settings.allowInheritedMethods);
@@ -141,10 +144,9 @@ namespace HarmonyProfiler.UI
             lister.Gap(20f);
         }
 
-        private void DrawOther(Listing_Extended lister, Settings settings)
+        private void DrawSettings(Listing_Extended lister, Settings settings)
         {
-            lister.LabelColored("Results", TitleLabelColor);
-
+            lister.LabelColored("Settings", TitleLabelColor);
             // memory options
             {
                 bool prevColMemUs = settings.collectMemAlloc;
@@ -159,6 +161,31 @@ namespace HarmonyProfiler.UI
                     lister.CheckboxLabeled("Sort by memory allocations", ref settings.sortByMemAlloc);
                 }
             }
+            // perfomance mode
+            {
+                Rect rect = lister.GetRect(Text.LineHeight);
+                if (settings.perfomanceMode)
+                {
+                    rect.width /= 2;
+                    Widgets.CheckboxLabeled(rect, "Perfomance mode", ref settings.perfomanceMode);
+                    rect.x = rect.xMax;
+                    Widgets.TextFieldNumericLabeled(rect, "Min AvgTime", ref settings.ruleTiming, ref settings.ruleTimingBuf);
+                }
+                else
+                {
+                    Widgets.CheckboxLabeled(rect, "Perfomance mode", ref settings.perfomanceMode);
+                }
+            }
+            if (lister.ButtonText($"Stop profiling", Text.LineHeight))
+            {
+                Profiler.Logger.LogOperation("ResetProfiling", Patcher.UnpatchAll);
+            }
+        }
+
+        private void DrawOther(Listing_Extended lister, Settings settings)
+        {
+            lister.LabelColored("Results", TitleLabelColor);
+            
             Rect buttonRect = lister.GetRect(Text.LineHeight);
             buttonRect.width /= 3;
             if (Widgets.ButtonText(buttonRect, $"Dump to SLK"))
@@ -178,24 +205,20 @@ namespace HarmonyProfiler.UI
             {
                 PatchHandler.Reset();
             }
-            if (lister.ButtonText($"Disable all profiler patches"))
-            {
-                Profiler.Logger.LogOperation("ResetProfiling", () => Patcher.UnpatchAll());
-            }
 
             lister.LabelColored("Other", TitleLabelColor);
-		    if (lister.ButtonText($"Dump all harmony patches"))
+		    if (lister.ButtonText($"Dump all harmony patches", Text.LineHeight))
 		    {
                 FS.WriteAllText("HarmonyPatches.txt", HarmonyMain.AllHarmonyPatchesDump());
 		    }
 
-            //lister.CheckboxLabeled("DEBUG", ref settings.debug);
+            lister.CheckboxLabeled("CRASH DEBUG", ref settings.debug);
             lister.Gap(20f);
         }
 
         private void DrawProfilerTop15(Listing_Extended lister, Settings settings)
         {
-            lister.LabelColored("Top 15", TitleLabelColor);
+            lister.LabelColored($"Top 15 (Triggered:{PatchHandler.ProfiledRecordsCount()} Methods:{Patcher.PatchedMethodsCount()})", TitleLabelColor);
 
             int maxRecordCount = 15;
             // update cache every 1 sec and skip update if mouse on buttons
@@ -249,7 +272,7 @@ namespace HarmonyProfiler.UI
             }
             Text.Font = backFont;
 
-            if (hided.Count > 0 && lister.ButtonText($"Reset Hided"))
+            if (hided.Count > 0 && lister.ButtonText($"Reset Hided", Text.LineHeight))
             {
                 hided.Clear();
                 cached = null;

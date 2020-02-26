@@ -92,9 +92,11 @@ namespace HarmonyProfiler.Profiler.Core
             }
         }
 
-        public string MethodName => $"{method?.ReflectedType?.FullName}:{method?.Name}";
+        public MethodBase Method => method;
 
-        public string AssemblyName => $"{method?.ReflectedType?.Assembly.GetName().Name}";
+        public string MethodName => $"{method?.DeclaringType?.FullName}:{method?.Name}";
+
+        public string AssemblyName => $"{method?.DeclaringType?.Assembly.GetName().Name}";
 
         public double AvgTime => avg.TicksToMs(5);
 

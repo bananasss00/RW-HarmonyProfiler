@@ -70,6 +70,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="HarmonyMain.cs" />
+    <Compile Include="HugsTick.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="UI\DebugButton.cs" />
     <Compile Include="Profiler\Extensions\DumpExtensions.cs" />
