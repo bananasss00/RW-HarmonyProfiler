@@ -57,8 +57,8 @@ namespace HarmonyProfiler.Profiler
             var methods = type.GetMethods(AccessTools.all).Where(x => x.Name.Equals(arr[1]));
             foreach (var m in methods)
             {
-                // not generic and inherited methods only from current assembly(was hook Object.GetHashCode, Equals)
-                if (!m.IsGenericMethod && m.Module == m.ReflectedType?.Module)
+                // check if method not generic, baseclass not generic and method from current assembly(was hook Object.GetHashCode, Equals)
+                if (!m.IsGenericMethod && !m.DeclaringType.IsGenericType && m.Module == m.ReflectedType?.Module)
                 {
                     yield return m;
                 }
@@ -89,6 +89,7 @@ namespace HarmonyProfiler.Profiler
                 catch (Exception e)
                 {
                     Log.Error($"[TryAddProfiler] Exception: {e.Message}; method => {method.GetMethodFullString()}");
+                    PatchedMethods.Remove(method); // harmony exception for indexers and mb other: cannot be patched. Reason: Invalid IL code in (wrapper dynamic-method) 
                 }
             }
             
@@ -104,6 +105,10 @@ namespace HarmonyProfiler.Profiler
             {
                 try
                 {
+                    if (Settings.Get().debug)
+                    {
+                        Log.Error($"[UnpatchAll] Try unpatch method => {methodBase.GetMethodFullString()}");
+                    }
                     HarmonyMain.Instance.Unpatch(methodBase, HarmonyPatchType.All, HarmonyMain.Id);
                     Logger.Add($"Unpatched: {methodBase.GetMethodFullString()}");
                 }
@@ -120,9 +125,9 @@ namespace HarmonyProfiler.Profiler
             PatchedMethods.Clear();
         }
 
-        public static void UnpatchByRule(float timingLess)
+        public static void UnpatchByRule(float avgTimeLessThan, int ticksMoreThan)
         {
-            var records = PatchHandler.GetProfileRecordsSorted().Where(x => x.IsValid && x.AvgTime <= timingLess).Select(x => x.Method);
+            var records = PatchHandler.GetProfileRecordsSorted().Where(x => x.IsValid && x.AvgTime <= avgTimeLessThan && x.TicksNum >= ticksMoreThan).Select(x => x.Method);
             PatchHandler.StopCollectData();
             int unpatched = 0;
             foreach (var methodBase in records)
@@ -269,10 +274,15 @@ namespace HarmonyProfiler.Profiler
                         var declaringType = methodInfo.DeclaringType;
                         if (declaringType == null)
                             continue;
-                        if (methodInfo.IsGenericMethod || methodInfo.IsAbstract)
+                        if (methodInfo.IsGenericMethod || methodInfo.IsAbstract/* || declaringType.IsGenericType*/)
                             continue;
                         if (!declaringType.Assembly.Equals(modAssembly)) // !declaringType.AssemblyQualifiedName.Contains("Assembly-CSharp")
                             continue;
+                        //if (methodInfo.IsIndexerPropertyMethod())
+                        //{
+                        //    Log.Error($"[indexer] {declaringType.FullName}:{methodInfo.Name}");
+                        //    continue;
+                        //}
 
                         if (!skipInherited || methodInfo.DeclaringType == defClass) 
                         {
@@ -318,6 +328,7 @@ namespace HarmonyProfiler.Profiler
         public static void ProfileMods(List<string> modNames)
         {
             var profilerCfg = Settings.Get().cfgDef;
+            var settings = Settings.Get();
 
             HashSet<string> patches = new HashSet<string>();
 
@@ -346,7 +357,7 @@ namespace HarmonyProfiler.Profiler
                     {
                         foreach (var child in thinkDef.thinkRoot.ChildrenRecursive)
                         {
-                            patches.AddDefMethodsAdvanced((child as ThinkNode_JobGiver)?.GetType());
+                            patches.AddDefMethodsAdvanced((child as ThinkNode_JobGiver)?.GetType(), settings.allowCoreAsm);
                         }
                     }
                     // DesignationCategory childs
@@ -354,14 +365,14 @@ namespace HarmonyProfiler.Profiler
                     {
                         foreach (var child in designationCategoryDef.specialDesignatorClasses)
                         {
-                            patches.AddDefMethodsAdvanced(child);
+                            patches.AddDefMethodsAdvanced(child, settings.allowCoreAsm);
                         }
                     }
                     // Auto class getter
                     var workers = GetWorkerClasses(d, profilerCfg.workerFields, profilerCfg.workerGetters);
                     foreach (var worker in workers)
                     {
-                        patches.AddDefMethodsAdvanced(worker);
+                        patches.AddDefMethodsAdvanced(worker, settings.allowCoreAsm);
                     }
                 }
             }

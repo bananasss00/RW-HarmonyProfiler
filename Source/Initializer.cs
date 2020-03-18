@@ -27,7 +27,7 @@ namespace HarmonyProfiler
             var settings = Settings.Get();
             if (settings.perfomanceMode)
             {
-                Patcher.UnpatchByRule(settings.ruleTiming);
+                Patcher.UnpatchByRule(settings.ruleTiming, settings.ruleTicks);
             }
         }
 

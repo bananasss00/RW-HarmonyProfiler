@@ -7,11 +7,14 @@ using Harmony;
 
 namespace HarmonyProfiler
 {
+    /// <summary>
+    /// index ordered by execution priority
+    /// </summary>
     public enum PatchType
     {
         Prefix,
-        Postfix,
-        Transpiler
+        Transpiler,
+        Postfix
     }
 
     public class PatchInfo
@@ -49,6 +52,12 @@ namespace HarmonyProfiler
             return owners;
         }
 
+        /// <summary>
+        /// Get collection [method, patches]
+        /// </summary>
+        /// <param name="owners">filter patches by owners or null for get all patches</param>
+        /// <param name="skipGenericMethods">include generic methods</param>
+        /// <returns></returns>
         public static Dictionary<MethodBase, Patches> GetPatches(string[] owners, bool skipGenericMethods)
         {
             var patches = Instance.GetPatchedMethods()
@@ -61,6 +70,12 @@ namespace HarmonyProfiler
                     .ToDictionary(x => x.method, y => y.patches);
         }
 
+        /// <summary>
+        /// Get collection [method, patch, patchType]
+        /// </summary>
+        /// <param name="owners">filter patches by owners or null for get all patches</param>
+        /// <param name="skipGenericMethods">include generic methods</param>
+        /// <returns></returns>
         public static IEnumerable<PatchInfo> GetPatchedMethods(string[] owners, bool skipGenericMethods)
         {
             var patches = GetPatches(owners, skipGenericMethods);
@@ -68,17 +83,17 @@ namespace HarmonyProfiler
             {
                 foreach (var valuePrefix in p.Value.Prefixes)
                 {
-                    if (owners.Any(x => x == valuePrefix.owner))
+                    if (owners?.Any(x => x == valuePrefix.owner) ?? true)
                         yield return new PatchInfo { originalMethod = p.Key, harmonyPatch = valuePrefix, patchType = PatchType.Prefix };
                 }
                 foreach (var valuePostfix in p.Value.Postfixes)
                 {
-                    if (owners.Any(x => x == valuePostfix.owner))
+                    if (owners?.Any(x => x == valuePostfix.owner) ?? true)
                         yield return new PatchInfo { originalMethod = p.Key, harmonyPatch = valuePostfix, patchType = PatchType.Postfix };
                 }
                 foreach (var valueTranspiler in p.Value.Transpilers)
                 {
-                    if (owners.Any(x => x == valueTranspiler.owner))
+                    if (owners?.Any(x => x == valueTranspiler.owner) ?? true)
                         yield return new PatchInfo { originalMethod = p.Key, harmonyPatch = valueTranspiler, patchType = PatchType.Transpiler };
                 }
             }
@@ -121,6 +136,76 @@ namespace HarmonyProfiler
                 }
             }
 
+            return sb.ToString();
+        }
+
+        public static string CanConflictHarmonyPatchesDump()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("===[Harmony Patches Can Conflict]===");
+
+            var allPatches = HarmonyMain.GetPatchedMethods(null, false)
+                .GroupBy(x => x.originalMethod)
+                .Select(x => new
+                {
+                    method = x.Key,
+                    patches = x // sort patches in execution priority. prefixes->transpilers->postfixes
+                        .Where(y => y.patchType != PatchType.Postfix) // can be blocked only transpilers or low priority prefixes
+                        .OrderBy(y => y.patchType)
+                        .ThenByDescending(y => y.harmonyPatch.priority)
+                        .ThenBy(y => y.harmonyPatch.index)
+                        .ToList()
+                });
+
+            bool HasConflictPatches(List<PatchInfo> sortedByExecuteOrder)
+            {
+                for (int i = 0; i < sortedByExecuteOrder.Count; i++)
+                {
+                    var p = sortedByExecuteOrder[i];
+                    if (p.patchType == PatchType.Prefix
+                        && p.harmonyPatch.patch.ReturnType == typeof(System.Boolean)
+                        && i != sortedByExecuteOrder.Count - 1)
+                    {
+                        // can block another prefixes, transpilers or postfixes
+                        return true;
+                    }
+
+                    if (p.patchType > PatchType.Prefix)
+                    {
+                        // transpilers and postfixes can't be bool patch
+                        return false;
+                    }
+                }
+
+                return false;
+            }
+
+            foreach (var p in allPatches)
+            {
+                if (!HasConflictPatches(p.patches))
+                    continue;
+
+                int owners = p.patches.Select(x => x.harmonyPatch.owner).Distinct().Count();
+                if (owners <= 1)
+                    continue;
+
+                int prefixes = p.patches.Count(x => x.patchType == PatchType.Prefix);
+                int transpilers = p.patches.Count(x => x.patchType == PatchType.Transpiler);
+                int postfixes = p.patches.Count(x => x.patchType == PatchType.Postfix);
+                sb.AppendLine($"{p.method.GetMethodFullString()}:(Owners: {owners} Prefixes:{prefixes}, Postfixes:{postfixes}, Transpilers:{transpilers})");
+                foreach (var patchInfo in p.patches)
+                {
+                    var harmonyPatch = patchInfo.harmonyPatch;
+                    var patchMethod = harmonyPatch.patch;
+                    sb.AppendLine($" {patchInfo.patchType} => {patchMethod.ReturnType.Name} {patchMethod.GetMethodFullString()} [mod:{harmonyPatch.owner}, prior:{harmonyPatch.priority}, idx:{harmonyPatch.index}]");
+                    foreach (var b in harmonyPatch.before)
+                        sb.AppendLine($"  before:{b}");
+                    foreach (var a in harmonyPatch.after)
+                        sb.AppendLine($"  after:{a}");
+                }
+                sb.AppendLine();
+            }
+            
             return sb.ToString();
         }
     }

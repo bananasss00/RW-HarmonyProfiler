@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using Harmony;
 using HarmonyProfiler.Profiler;
 using HarmonyProfiler.Profiler.Core;
 using HarmonyProfiler.Profiler.Extensions;
 using UnityEngine;
 using Verse;
+using Logger = HarmonyProfiler.Profiler.Logger;
 
 namespace HarmonyProfiler.UI
 {
@@ -90,10 +92,14 @@ namespace HarmonyProfiler.UI
             {
                 settings.profileMods = String.Join("\n", LoadedModManager.RunningModsListForReading.Select(x => Path.GetFileName(x.RootDir)).ToArray());
             }
-            if (!settings.profileMods.IsNullOrEmpty() && Widgets.ButtonText(buttonRect2, $"Profile mods"))
+            if (!settings.profileMods.IsNullOrEmpty())
             {
-                var mods = settings.profileMods.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
-                Profiler.Logger.LogOperation("ModsProfiling", () => Patcher.ProfileMods(mods.ToList()));
+                lister.CheckboxLabeled("Allow Core assembly", ref settings.allowCoreAsm);
+                if (Widgets.ButtonText(buttonRect2, $"Profile mods"))
+                {
+                    var mods = settings.profileMods.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
+                    Profiler.Logger.LogOperation("ModsProfiling", () => Patcher.ProfileMods(mods.ToList()));
+                }
             }
             settings.profileMods = lister.TextArea(settings.profileMods, 5, ref modsScrollPos);
             lister.Gap(20f);
@@ -102,11 +108,33 @@ namespace HarmonyProfiler.UI
         private void DrawCustomProfiler(Listing_Extended lister, Settings settings)
         {
             lister.LabelColored("Profile Custom(Methods,Classes,Namespaces)", TitleLabelColor);
+            Rect buttonRect1 = lister.GetRect(Text.LineHeight),
+                buttonRect2 = buttonRect1;
+
+            buttonRect2.width = buttonRect1.width /= 2;
+            buttonRect2.x = buttonRect1.xMax;
+
+            if (Widgets.ButtonText(buttonRect1, "Profile all dlls"))
+            {
+                var methods = new HashSet<string>();
+                var modDllNames = Utils.GetAllModsDll();
+                //File.WriteAllLines("dsdsd", modDllNames.ToArray());
+                foreach (var modDllName in modDllNames)
+                {
+                    //Log.Warning($"[dll] {modDllName}");
+                    foreach (var @class in Utils.GetClassesFromDll(modDllName))
+                    {
+                        methods.AddDefMethodsAdvanced(@class, settings.allowCoreAsm, !settings.allowInheritedMethods);
+                    }
+                }
+                Profiler.Logger.LogOperation("DllProfiling", () => Patcher.ProfileMethods(methods.ToArray()));
+            }
+
             if (!settings.profileCustom.IsNullOrEmptyOrEqual(Settings.CustomExampleStr))
             {
                 lister.CheckboxLabeled("Allow Core assembly", ref settings.allowCoreAsm);
                 lister.CheckboxLabeled("Allow class inherited methods", ref settings.allowInheritedMethods);
-                if (lister.ButtonText($"Profile custom methods", Text.LineHeight))
+                if (Widgets.ButtonText(buttonRect2, $"Profile custom methods"))
                 {
                     var methods = new HashSet<string>();
                     var list = settings.profileCustom.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
@@ -116,6 +144,14 @@ namespace HarmonyProfiler.UI
                         if (s.Contains(":"))
                         {
                             methods.Add(s);
+                        }
+                        else if (s.EndsWith(".dll"))
+                        {
+                            string dllName = s.Replace(".dll", "");
+                            foreach (var @class in Utils.GetClassesFromDll(dllName))
+                            {
+                                methods.AddDefMethodsAdvanced(@class, settings.allowCoreAsm, !settings.allowInheritedMethods);
+                            }
                         }
                         else
                         {
@@ -162,18 +198,20 @@ namespace HarmonyProfiler.UI
                 }
             }
             // perfomance mode
+            lister.CheckboxLabeled("Perfomance mode", ref settings.perfomanceMode);
             {
-                Rect rect = lister.GetRect(Text.LineHeight);
                 if (settings.perfomanceMode)
                 {
-                    rect.width /= 2;
-                    Widgets.CheckboxLabeled(rect, "Perfomance mode", ref settings.perfomanceMode);
-                    rect.x = rect.xMax;
-                    Widgets.TextFieldNumericLabeled(rect, "Min AvgTime", ref settings.ruleTiming, ref settings.ruleTimingBuf);
-                }
-                else
-                {
-                    Widgets.CheckboxLabeled(rect, "Perfomance mode", ref settings.perfomanceMode);
+                    Rect rect = lister.GetRect(Text.LineHeight),
+                        timeRect = rect,
+                        ticksRect = rect;
+
+                    timeRect.width = rect.width / 2 + 35;
+                    Widgets.TextFieldNumericLabeled(timeRect, "clean AvgTime < ", ref settings.ruleTiming, ref settings.ruleTimingBuf);
+
+                    ticksRect.x = timeRect.xMax;
+                    ticksRect.width -= timeRect.width;
+                    Widgets.TextFieldNumericLabeled(ticksRect, "and Ticks > ", ref settings.ruleTicks, ref settings.ruleTicksBuf);
                 }
             }
             if (lister.ButtonText($"Stop profiling", Text.LineHeight))
@@ -210,6 +248,7 @@ namespace HarmonyProfiler.UI
 		    if (lister.ButtonText($"Dump all harmony patches", Text.LineHeight))
 		    {
                 FS.WriteAllText("HarmonyPatches.txt", HarmonyMain.AllHarmonyPatchesDump());
+                FS.WriteAllText("HarmonyPatches-Conflicts.txt", HarmonyMain.CanConflictHarmonyPatchesDump());
 		    }
 
             lister.CheckboxLabeled("CRASH DEBUG", ref settings.debug);
@@ -287,8 +326,8 @@ namespace HarmonyProfiler.UI
         }
 
         private bool stopUpdate = false;
-        private HashSet<string> hided = new HashSet<string>();
         private List<StopwatchRecord> cached;
         private Stopwatch cacheUpdateTimer = Stopwatch.StartNew();
+        private static HashSet<string> hided = new HashSet<string>();
     }
 }
