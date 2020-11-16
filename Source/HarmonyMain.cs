@@ -3,7 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Harmony;
+using HarmonyLib;
 
 namespace HarmonyProfiler
 {
@@ -27,7 +27,7 @@ namespace HarmonyProfiler
     public class HarmonyMain
     {
         public const string Id = "harmony.pirateby.profiler";
-        public static readonly HarmonyInstance Instance = HarmonyInstance.Create(Id);
+        public static readonly Harmony Instance = new Harmony(Id);
 
         public static void Initialize()
         {
@@ -37,10 +37,10 @@ namespace HarmonyProfiler
         public static HashSet<string> GetAllHarmonyInstances()
         {
             HashSet<string> owners = new HashSet<string>();
-            var patched = Instance.GetPatchedMethods();
+            var patched = Harmony.GetAllPatchedMethods();
             foreach (var method in patched)
             {
-                var patchInfo = Instance.GetPatchInfo(method);
+                var patchInfo = Harmony.GetPatchInfo(method);
                 foreach (var owner in patchInfo.Owners)
                 {
                     if (!owner.Equals(Id))
@@ -60,9 +60,9 @@ namespace HarmonyProfiler
         /// <returns></returns>
         public static Dictionary<MethodBase, Patches> GetPatches(string[] owners, bool skipGenericMethods)
         {
-            var patches = Instance.GetPatchedMethods()
+            var patches = Harmony.GetAllPatchedMethods()
                 .Where(method => !skipGenericMethods || !method.DeclaringType.IsGenericType)
-                .Select(method => new {method, patches = Instance.GetPatchInfo(method)});
+                .Select(method => new {method, patches = Harmony.GetPatchInfo(method)});
 
             return owners == null
                 ? patches.ToDictionary(x => x.method, y => y.patches)
@@ -111,7 +111,7 @@ namespace HarmonyProfiler
 
                 foreach (var p in patchesSorted)
                 {
-                    var m = p.patch;
+                    var m = p.PatchMethod;
                     sb.AppendLine($" {type}:{m.ReturnType.Name} {m.GetMethodFullString()} [mod:{p.owner}, prior:{p.priority}, idx:{p.index}]");
                     foreach (var b in p.before)
                         sb.AppendLine($"  before:{b}");
@@ -163,7 +163,7 @@ namespace HarmonyProfiler
                 {
                     var p = sortedByExecuteOrder[i];
                     if (p.patchType == PatchType.Prefix
-                        && p.harmonyPatch.patch.ReturnType == typeof(System.Boolean)
+                        && p.harmonyPatch.PatchMethod.ReturnType == typeof(System.Boolean)
                         && i != sortedByExecuteOrder.Count - 1)
                     {
                         // can block another prefixes, transpilers or postfixes
@@ -196,7 +196,7 @@ namespace HarmonyProfiler
                 foreach (var patchInfo in p.patches)
                 {
                     var harmonyPatch = patchInfo.harmonyPatch;
-                    var patchMethod = harmonyPatch.patch;
+                    var patchMethod = harmonyPatch.PatchMethod;
                     sb.AppendLine($" {patchInfo.patchType} => {patchMethod.ReturnType.Name} {patchMethod.GetMethodFullString()} [mod:{harmonyPatch.owner}, prior:{harmonyPatch.priority}, idx:{harmonyPatch.index}]");
                     foreach (var b in harmonyPatch.before)
                         sb.AppendLine($"  before:{b}");

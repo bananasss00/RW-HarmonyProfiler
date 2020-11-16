@@ -15,4 +15,4 @@ using System.Security.Permissions;
 [assembly: Guid("bdd551a4-fd6e-4444-955a-885f2fd9f952")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 [assembly: AssemblyVersion("1.0.0.0")]
-[assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]
+//[assembly: SecurityPermission(SecurityAction.RequestMinimum, SkipVerification = true)]

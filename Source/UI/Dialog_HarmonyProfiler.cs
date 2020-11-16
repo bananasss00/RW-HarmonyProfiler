@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
-using Harmony;
+using HarmonyLib;
 using HarmonyProfiler.Profiler;
 using HarmonyProfiler.Profiler.Core;
 using HarmonyProfiler.Profiler.Extensions;
@@ -46,6 +46,7 @@ namespace HarmonyProfiler.UI
             DrawOther(lister, settings);
 
             lister.NewColumn();
+            lister.ColumnWidth = rect.width - 420;
 
             DrawProfilerTop15(lister, settings);
 
@@ -56,10 +57,12 @@ namespace HarmonyProfiler.UI
         {
             lister.LabelColored("Profile Harmony Instances", TitleLabelColor);
             Rect buttonRect1 = lister.GetRect(Text.LineHeight),
-                buttonRect2 = buttonRect1;
+                buttonRect2 = buttonRect1,
+                buttonRect3 = buttonRect1;
 
-            buttonRect2.width = buttonRect1.width /= 2;
+            buttonRect2.width = buttonRect3.width = buttonRect1.width = buttonRect1.width / 3;
             buttonRect2.x = buttonRect1.xMax;
+            buttonRect3.x = buttonRect2.xMax;
 
             if (Widgets.ButtonText(buttonRect1, "Get instances"))
             {
@@ -73,8 +76,13 @@ namespace HarmonyProfiler.UI
                     var instances = settings.profileInstances.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
                     Profiler.Logger.LogOperation("PatchesProfiling", () => Patcher.ProfileHarmonyPatches(instances, true, !settings.allowTranspiledMethods));
                 }
+                if (Widgets.ButtonText(buttonRect3, "Unpatch instances"))
+                {
+                    var instances = settings.profileInstances.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
+                    Profiler.Logger.LogOperation("UnpatchInstances", () => Patcher.UnpatchInstances(instances));
+                }
             }
-            settings.profileInstances = lister.TextArea(settings.profileInstances, 5, ref instancesScrollPos);
+            settings.profileInstances = lister.TextAreaFocusControl("InstancesProfilerField", settings.profileInstances, 5, ref instancesScrollPos);
             lister.Gap(20f);
         }
 
@@ -101,7 +109,7 @@ namespace HarmonyProfiler.UI
                     Profiler.Logger.LogOperation("ModsProfiling", () => Patcher.ProfileMods(mods.ToList()));
                 }
             }
-            settings.profileMods = lister.TextArea(settings.profileMods, 5, ref modsScrollPos);
+            settings.profileMods = lister.TextAreaFocusControl("ModsProfilerField", settings.profileMods, 5, ref modsScrollPos);
             lister.Gap(20f);
         }
 
@@ -130,7 +138,7 @@ namespace HarmonyProfiler.UI
                 Profiler.Logger.LogOperation("DllProfiling", () => Patcher.ProfileMethods(methods.ToArray()));
             }
 
-            if (!settings.profileCustom.IsNullOrEmptyOrEqual(Settings.CustomExampleStr))
+            //if (!settings.profileCustom.IsNullOrEmptyOrEqual(Settings.CustomExampleStr))
             {
                 lister.CheckboxLabeled("Allow Core assembly", ref settings.allowCoreAsm);
                 lister.CheckboxLabeled("Allow class inherited methods", ref settings.allowInheritedMethods);
@@ -165,7 +173,7 @@ namespace HarmonyProfiler.UI
                             {
                                 var classes = Utils.GetClassesFromNamespace(s);
                                 if (!classes.Any()) Log.Error($"[HarmonyProfiler] Found 0 results for namespace:'{s}'");
-                                foreach (var @class in Utils.GetClassesFromNamespace(s))
+                                foreach (var @class in classes)
                                 {
                                     methods.AddDefMethodsAdvanced(@class, settings.allowCoreAsm, !settings.allowInheritedMethods);
                                 }
@@ -176,7 +184,8 @@ namespace HarmonyProfiler.UI
                     Profiler.Logger.LogOperation("CustomProfiling", () => Patcher.ProfileMethods(methods.ToArray()));
                 }
             }
-            settings.profileCustom = lister.TextArea(settings.profileCustom, 5, ref customScrollPos);
+
+            settings.profileCustom = lister.TextAreaFocusControl("CustomProfilerField", settings.profileCustom, 5, ref customScrollPos);
             lister.Gap(20f);
         }
 
@@ -198,7 +207,20 @@ namespace HarmonyProfiler.UI
                 }
             }
             // perfomance mode
-            lister.CheckboxLabeled("Perfomance mode", ref settings.perfomanceMode);
+            Rect checkboxRect = lister.GetRect(Text.LineHeight),
+                buttonRect = checkboxRect;
+
+            if (settings.perfomanceMode)
+            {
+                buttonRect.width = checkboxRect.width /= 2;
+                buttonRect.x = checkboxRect.xMax;
+                if (Widgets.ButtonText(buttonRect, "Force optimize"))
+                {
+                    Patcher.UnpatchByRule(settings.ruleTiming, settings.ruleTicks);
+                }
+            }
+
+            Widgets.CheckboxLabeled(checkboxRect, "Perfomance mode", ref settings.perfomanceMode);
             {
                 if (settings.perfomanceMode)
                 {
@@ -222,34 +244,43 @@ namespace HarmonyProfiler.UI
 
         private void DrawOther(Listing_Extended lister, Settings settings)
         {
-            lister.LabelColored("Results", TitleLabelColor);
-            
-            Rect buttonRect = lister.GetRect(Text.LineHeight);
-            buttonRect.width /= 3;
-            if (Widgets.ButtonText(buttonRect, $"Dump to SLK"))
+            if (lister.ButtonText($"Results", Text.LineHeight))
             {
-                List<StopwatchRecord> result = PatchHandler.GetProfileRecordsSorted();
-                FS.WriteAllText($"Profiler_{DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss")}.slk", result.DumpToSlk());
+                Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>
+                {
+                    new FloatMenuOption("Dump to SLK", () => {
+                        List<StopwatchRecord> result = PatchHandler.GetProfileRecordsSorted();
+                        FS.WriteAllText($"Profiler_{DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss")}.slk", result.DumpToSlk());
+                    }),
+                    new FloatMenuOption("Dump to CSV", () => {
+                        List<StopwatchRecord> result = PatchHandler.GetProfileRecordsSorted();
+                        FS.WriteAllText($"Profiler_{DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss")}.csv", result.DumpToCsv());
+                    }),
+                    new FloatMenuOption("Reset results", () => {
+                        PatchHandler.Reset();
+                    }),
+                }));
             }
-
-            buttonRect.x = buttonRect.xMax;
-            if (Widgets.ButtonText(buttonRect, $"Dump to CSV"))
+            if (lister.ButtonText($"Tools / Other", Text.LineHeight))
             {
-                List<StopwatchRecord> result = PatchHandler.GetProfileRecordsSorted();
-                FS.WriteAllText($"Profiler_{DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss")}.csv", result.DumpToCsv());
+                IEnumerable<FloatMenuOption> getOptions()
+                {
+                    yield return new FloatMenuOption($"Enable disabled methods: {PatchDisabler.DisabledCount}", () =>
+                    {
+                        PatchDisabler.EnableAllDisabled();
+                    });
+                    yield return new FloatMenuOption("Dump all harmony patches", () =>
+                    {
+                        FS.WriteAllText("HarmonyPatches.txt", HarmonyMain.AllHarmonyPatchesDump());
+                        FS.WriteAllText("HarmonyPatches-Conflicts.txt", HarmonyMain.CanConflictHarmonyPatchesDump());
+                    });
+                    // if (DubsProfilerReset.CanUnpatch())
+                    // {
+                    //     yield return new FloatMenuOption("Reset DubsPerfomanceAnalyzer patches", DubsProfilerReset.ResetProfiler);
+                    // }
+                }
+                Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>(getOptions())));
             }
-            buttonRect.x = buttonRect.xMax;
-            if (Widgets.ButtonText(buttonRect, $"Reset"))
-            {
-                PatchHandler.Reset();
-            }
-
-            lister.LabelColored("Other", TitleLabelColor);
-		    if (lister.ButtonText($"Dump all harmony patches", Text.LineHeight))
-		    {
-                FS.WriteAllText("HarmonyPatches.txt", HarmonyMain.AllHarmonyPatchesDump());
-                FS.WriteAllText("HarmonyPatches-Conflicts.txt", HarmonyMain.CanConflictHarmonyPatchesDump());
-		    }
 
             lister.CheckboxLabeled("CRASH DEBUG", ref settings.debug);
             lister.Gap(20f);
@@ -279,11 +310,19 @@ namespace HarmonyProfiler.UI
                 string tooltip = r.Tooltip;
 
                 Rect buttonRect1 = lister.GetRect(Text.LineHeight),
-                    buttonRect2 = buttonRect1;
+                    buttonRect2 = buttonRect1,
+                    buttonRect3 = buttonRect1,
+                    buttonRect4 = buttonRect1,
+                    buttonRect5 = buttonRect1;
 
-                buttonRect1.width = 40;
-                buttonRect2.width -= 40;
+                buttonRect1.width = buttonRect2.width = buttonRect3.width = buttonRect4.width = 40;
+                
                 buttonRect2.x = buttonRect1.xMax;
+                buttonRect3.x = buttonRect2.xMax;
+                buttonRect4.x = buttonRect3.xMax;
+                
+                buttonRect5.width -= 40 * 4;
+                buttonRect5.x = buttonRect4.xMax;
 
                 if (ButtonText(buttonRect1, "Copy", tooltip + "\nPress for copy this method name", out bool button1IsMouseOver))
                 {
@@ -295,14 +334,39 @@ namespace HarmonyProfiler.UI
                     }
                 }
 
-                if (ButtonText(buttonRect2, r.MethodName, tooltip + "\nPress for hide this line", out bool button2IsMouseOver))
+                bool logActive = PatchHandler.logMethod != null && r.Method == PatchHandler.logMethod;
+                if (ButtonText(buttonRect2, logActive ? "X" : "Log", tooltip + "\nPress for copy this method name", out bool button2IsMouseOver))
+                {
+                    // disable log this method
+                    if (logActive) PatchHandler.logMethod = null;
+                    // enable log this method
+                    else PatchHandler.logMethod = r.Method;
+                }
+
+                bool isDisabled = PatchDisabler.IsDisabled(r.Method);
+                if (ButtonText(buttonRect3, isDisabled ? "On" : "Off", tooltip + (isDisabled ? "\nPress for ENABLE this method" : "\nPress for DISABLE this method"), out bool button3IsMouseOver))
+                {
+                    if (isDisabled)
+                        PatchDisabler.EnableMethod(r.Method);
+                    else
+                        PatchDisabler.DisableMethod(r.Method);
+                }
+
+                if (ButtonText(buttonRect4, "Undo", tooltip + ("\nPress for REMOVE PROFILER for this method"), out bool button4IsMouseOver))
+                {
+                    Patcher.UnpatchMethod(r.Method);
+                    cached = null;
+                    break; // and redraw
+                }
+
+                if (ButtonText(buttonRect5, r.MethodName, tooltip + "\nPress for hide this line", out bool button5IsMouseOver))
                 {
                     hided.Add(r.MethodName);
                     cached = null;
                     break; // and redraw
                 }
-
-                if (button1IsMouseOver || button2IsMouseOver)
+                
+                if (button1IsMouseOver || button2IsMouseOver || button3IsMouseOver || button4IsMouseOver || button5IsMouseOver)
                 {
                     stopUpdate = true;
                 }

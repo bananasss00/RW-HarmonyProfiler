@@ -5,7 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using Harmony;
+using HarmonyLib;
 using HarmonyProfiler.Profiler.Extensions;
 
 namespace HarmonyProfiler.Profiler.Core
@@ -121,7 +121,7 @@ namespace HarmonyProfiler.Profiler.Core
 
                 if (patchesCached == null)
                 {
-                    patchesCached = HarmonyMain.Instance.GetPatchInfo(method);
+                    patchesCached = Harmony.GetPatchInfo(method);
                     if (patchesCached == null) method = null; // broke this method
                 }
 

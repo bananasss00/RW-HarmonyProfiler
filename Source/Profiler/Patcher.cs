@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using Harmony;
+using System.Runtime.CompilerServices;
+using HarmonyLib;
 using HarmonyProfiler.Profiler.Core;
+using HarmonyProfiler.Profiler.Extensions;
 using Verse;
 using Verse.AI;
 
@@ -14,13 +17,15 @@ namespace HarmonyProfiler.Profiler
     {
         // min priority can rip profiler by another prefixes if he return false
         private static readonly HarmonyMethod MethodPrefix =
-            new HarmonyMethod(PatchHandler.PatchStartMethod) {prioritiy = int.MaxValue}; 
+            new HarmonyMethod(PatchHandler.PatchStartMethod) {priority = int.MaxValue}; 
 
         private static readonly HarmonyMethod MethodPostfix =
-            new HarmonyMethod(PatchHandler.PatchStopMethod) {prioritiy = int.MaxValue};
+            new HarmonyMethod(PatchHandler.PatchStopMethod) {priority = int.MaxValue};
 
         // prevent multi patch and unpatching
         private static readonly HashSet<MethodBase> PatchedMethods = new HashSet<MethodBase>();
+
+        private static long _messagesCount = 0;
 
         #region Main methods
         /// <summary>
@@ -50,7 +55,7 @@ namespace HarmonyProfiler.Profiler
             if (arr.Length != 2)
                 throw new Exception("Not valid typeColonMethodname");
 
-            var type = AccessTools.TypeByName(arr[0]);
+            var type = TypeByName.Get(arr[0]);
             if (type == null)
                 yield break;
 
@@ -58,7 +63,7 @@ namespace HarmonyProfiler.Profiler
             foreach (var m in methods)
             {
                 // check if method not generic, baseclass not generic and method from current assembly(was hook Object.GetHashCode, Equals)
-                if (!m.IsGenericMethod && !m.DeclaringType.IsGenericType && m.Module == m.ReflectedType?.Module)
+                if (!m.IsGenericMethod && !m.ContainsGenericParameters/* && !m.DeclaringType.IsGenericType*/ && m.HasMethodBody() && m.Module == m.ReflectedType?.Module)
                 {
                     yield return m;
                 }
@@ -80,6 +85,11 @@ namespace HarmonyProfiler.Profiler
                     //File.AppendAllText($"z:/aaa.log", method.GetMethodFullString() + "\n");
                     if (Settings.Get().debug)
                     {
+                        if (++_messagesCount % 500 == 0)
+                        {
+                            Log.ResetMessageCount();
+                        }
+
                         Log.Error($"[TryAddProfiler] Try patch method => {method.GetMethodFullString()}");
                     }
 
@@ -125,6 +135,28 @@ namespace HarmonyProfiler.Profiler
             PatchedMethods.Clear();
         }
 
+        public static void UnpatchMethod(MethodBase m)
+        {
+            PatchHandler.StopCollectData();
+
+            try
+            {
+                HarmonyMain.Instance.Unpatch(m, HarmonyPatchType.All, HarmonyMain.Id);
+                Log.Warning($"Unpatched: {m.GetMethodFullString()}");
+                PatchedMethods.Remove(m);
+                PatchHandler.RemoveProfiledRecords(m);
+            }
+            catch (Exception e)
+            {
+                Log.Error($"[ERROR][UnpatchMethod] Exception: {e.Message}; method => {m.GetMethodFullString()}");
+            }
+
+            if (PatchedMethods.Count > 0)
+            {
+                PatchHandler.StartCollectData();
+            }
+        }
+
         public static void UnpatchByRule(float avgTimeLessThan, int ticksMoreThan)
         {
             var records = PatchHandler.GetProfileRecordsSorted().Where(x => x.IsValid && x.AvgTime <= avgTimeLessThan && x.TicksNum >= ticksMoreThan).Select(x => x.Method);
@@ -158,14 +190,38 @@ namespace HarmonyProfiler.Profiler
                 PatchHandler.StartCollectData();
             }
         }
+
+        public static void UnpatchInstances(string[] owners)
+        {
+            PatchHandler.StopCollectData();
+            int unpatchedCount = 0;
+            var patchedMethodsByOwners = HarmonyMain.GetPatchedMethods(owners, false);
+            foreach (var patchInfo in patchedMethodsByOwners)
+            {
+                var patchOwner = patchInfo.harmonyPatch.owner;
+                var originalMethod = patchInfo.originalMethod;
+                HarmonyMain.Instance.Unpatch(originalMethod, HarmonyPatchType.All, patchOwner);
+                Logger.Add($"Unpatched: {originalMethod.GetMethodFullString()}; Instance: {patchOwner}");
+                unpatchedCount++;
+            }
+            if (PatchedMethods.Count > 0)
+            {
+                PatchHandler.StartCollectData();
+            }
+        }
         #endregion
 
         #region Custom / Patches profiling
         public static void ProfileMethods(string[] methodNames)
         {
+            TypeByName.Initialize();
+            PatchHandler.StopCollectData();
             int patchedCount = 0;
             foreach (var methodName in methodNames)
             {
+                if (methodName.StartsWith("UnityEngine."))
+                    continue; // skip in 1.2 hooking UE submodules
+                    
                 //var method = AccessTools.Method(methodName); // TODO: overloaded functions
                 foreach (var method in GetAllMethodsWithOverloads(methodName))
                 {
@@ -188,11 +244,13 @@ namespace HarmonyProfiler.Profiler
                 }
             }
             Log.Warning($"Patched methods: {patchedCount}");
+            TypeByName.Close();
             PatchHandler.StartCollectData();
         }
 
         public static void ProfileHarmonyPatches(string[] owners, bool skipGenericMethods, bool skipTranspiledMethods)
         {
+            PatchHandler.StopCollectData();
             int transpilersSkip = 0;
             int patchedCount = 0;
             var patchedMethodsByOwners = HarmonyMain.GetPatchedMethods(owners, skipGenericMethods);
@@ -200,7 +258,7 @@ namespace HarmonyProfiler.Profiler
             {
                 bool isTranspiler = patchInfo.patchType == PatchType.Transpiler;
                 string patchOwner = patchInfo.harmonyPatch.owner;
-                var patchMethod = isTranspiler ? patchInfo.originalMethod : patchInfo.harmonyPatch.patch;
+                var patchMethod = isTranspiler ? patchInfo.originalMethod : patchInfo.harmonyPatch.PatchMethod;
 
                 if (skipTranspiledMethods && isTranspiler)
                 {
@@ -274,7 +332,9 @@ namespace HarmonyProfiler.Profiler
                         var declaringType = methodInfo.DeclaringType;
                         if (declaringType == null)
                             continue;
-                        if (methodInfo.IsGenericMethod || methodInfo.IsAbstract/* || declaringType.IsGenericType*/)
+                        if (methodInfo.IsGenericMethod/* || methodInfo.IsAbstract*//* || declaringType.IsGenericType*/ || methodInfo.ContainsGenericParameters || !methodInfo.HasMethodBody())
+                            continue;
+                        if (declaringType.GetCustomAttribute(typeof(CompilerGeneratedAttribute), true) != null)
                             continue;
                         if (!declaringType.Assembly.Equals(modAssembly)) // !declaringType.AssemblyQualifiedName.Contains("Assembly-CSharp")
                             continue;

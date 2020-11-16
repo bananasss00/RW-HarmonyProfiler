@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Harmony;
+using HarmonyLib;
 using Verse;
 
 namespace HarmonyProfiler.Profiler.Core
@@ -23,6 +23,8 @@ namespace HarmonyProfiler.Profiler.Core
         public static int RemoveProfiledRecords(MethodBase method) => _profiledMethods.RemoveAll(x => x.Value.Method == method);
         
         public static int ProfiledRecordsCount() => _profiledMethods.Count;
+
+        public static MethodBase logMethod = null;
 
         public static void Reset()
         {
@@ -57,6 +59,12 @@ namespace HarmonyProfiler.Profiler.Core
         {
             if (!Active) return;
             __state.Stop();
+
+            // log stacktrace
+            if (logMethod != null && logMethod == __state.Method)
+            {
+                Log.Warning(__state.MethodName);
+            }
         }
 
         /// <summary>
@@ -65,6 +73,7 @@ namespace HarmonyProfiler.Profiler.Core
         /// <returns></returns>
         public static List<StopwatchRecord> GetProfileRecordsSorted()
         {
+            bool bkpState = Active;
             Active = false;
 
             bool sortByMemAlloc = Settings.Get().sortByMemAlloc;
@@ -74,7 +83,7 @@ namespace HarmonyProfiler.Profiler.Core
                 .OrderByDescending(x => !sortByMemAlloc ? x.TimeSpent : x.AllocKB)
                 .ToList();
 
-            Active = true;
+            Active = bkpState;
             return records;
         }
     }

@@ -19,7 +19,7 @@ namespace HarmonyProfiler.Profiler.Extensions
             "Ticks",
             "MinTime",
             "MaxTime",
-            "AvgTime*Ticks in ms",
+            "TotalTime",
             "AvgKB",
             "AllocKB",
             "Patches"
