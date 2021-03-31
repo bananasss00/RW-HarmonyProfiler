@@ -45,10 +45,10 @@ namespace HarmonyProfiler.Profiler.Core
         private Patches patchesCached;
         private string patchOwnersCached;
 
-        private long avg = 0;
+        private double avg = 0;
         private long num = 0;
-        private long min = long.MaxValue;
-        private long max = 0;
+        private double min = double.MaxValue;
+        private double max = 0;
         private long allocBytes = 0;
         private long allocAvgBytes = 0;
 
@@ -70,11 +70,11 @@ namespace HarmonyProfiler.Profiler.Core
                 watch.Stop();
 
                 // calc timings
-                long ticks = watch.ElapsedTicks;
-                avg = (avg * num + ticks) / (num + 1);
+                double totalMs = watch.Elapsed.TotalMilliseconds;
+                avg = (avg * num + totalMs) / (num + 1);
                 
-                if (ticks < min) min = ticks;
-                if (ticks > max) max = ticks;
+                if (totalMs < min) min = totalMs;
+                if (totalMs > max) max = totalMs;
 
                 if (collectMemoryUsage)
                 {
@@ -98,15 +98,15 @@ namespace HarmonyProfiler.Profiler.Core
 
         public string AssemblyName => $"{method?.DeclaringType?.Assembly.GetName().Name}";
 
-        public double AvgTime => avg.TicksToMs(5);
+        public double AvgTime => avg; //.TicksToMs(5);
 
-        public double MinTime => min.TicksToMs(5);
+        public double MinTime => min; //.TicksToMs(5);
 
-        public double MaxTime => max.TicksToMs(5);
+        public double MaxTime => max; //.TicksToMs(5);
 
         public long TicksNum => num;
 
-        public long TimeSpent => (avg * num).TicksToMs();
+        public long TimeSpent => (long)(avg * num); //.TicksToMs();
 
         public long AllocKB => (long)Math.Round((double)allocBytes / 1024L);
 
@@ -166,7 +166,7 @@ namespace HarmonyProfiler.Profiler.Core
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine(MethodName);
                 sb.AppendLine($"Assembly: {AssemblyName}");
-                sb.AppendLine($"Min-MaxTime: {MinTime}-{MaxTime}ms");
+                sb.AppendLine($"Min-MaxTime: {MinTime:0.00000}-{MaxTime:0.00000}ms");
                 sb.AppendLine($"AvgAlloc: {AvgKB}kb");
                 sb.AppendLine($"TotalAlloc: {AllocKB}kb");
                 sb.AppendLine($"PatchedBy:{PatchOwners}");

@@ -73,6 +73,7 @@ namespace HarmonyProfiler.UI
                 lister.CheckboxLabeled("Allow transpiled methods(slow patching)", ref settings.allowTranspiledMethods);
                 if (Widgets.ButtonText(buttonRect2, $"Profile instances"))
                 {
+                    PatchHandler.Initialize();
                     var instances = settings.profileInstances.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
                     Profiler.Logger.LogOperation("PatchesProfiling", () => Patcher.ProfileHarmonyPatches(instances, true, !settings.allowTranspiledMethods));
                 }
@@ -105,6 +106,7 @@ namespace HarmonyProfiler.UI
                 lister.CheckboxLabeled("Allow Core assembly", ref settings.allowCoreAsm);
                 if (Widgets.ButtonText(buttonRect2, $"Profile mods"))
                 {
+                    PatchHandler.Initialize();
                     var mods = settings.profileMods.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
                     Profiler.Logger.LogOperation("ModsProfiling", () => Patcher.ProfileMods(mods.ToList()));
                 }
@@ -124,6 +126,7 @@ namespace HarmonyProfiler.UI
 
             if (Widgets.ButtonText(buttonRect1, "Profile all dlls"))
             {
+                PatchHandler.Initialize();
                 var methods = new HashSet<string>();
                 var modDllNames = Utils.GetAllModsDll();
                 //File.WriteAllLines("dsdsd", modDllNames.ToArray());
@@ -144,6 +147,7 @@ namespace HarmonyProfiler.UI
                 lister.CheckboxLabeled("Allow class inherited methods", ref settings.allowInheritedMethods);
                 if (Widgets.ButtonText(buttonRect2, $"Profile custom methods"))
                 {
+                    PatchHandler.Initialize();
                     var methods = new HashSet<string>();
                     var list = settings.profileCustom.Split(new[] {"\r\n", "\n"}, StringSplitOptions.RemoveEmptyEntries);
                     foreach (var s in list)
@@ -192,6 +196,10 @@ namespace HarmonyProfiler.UI
         private void DrawSettings(Listing_Extended lister, Settings settings)
         {
             lister.LabelColored("Settings", TitleLabelColor);
+            lister.CheckboxLabeled("Check main thread", ref settings.checkMainThread);
+            lister.CheckboxLabeled("Transpiler Mode(SLOW PATCHING/BETTER TPS)", ref settings.profilerTranspileMode);
+            if (settings.profilerTranspileMode)
+                lister.CheckboxLabeled("  Get original from dictionary", ref settings.getOriginalFromDict);
             // memory options
             {
                 bool prevColMemUs = settings.collectMemAlloc;
@@ -202,9 +210,7 @@ namespace HarmonyProfiler.UI
                     PatchHandler.Reset();
                 }
                 if (settings.collectMemAlloc)
-                {
-                    lister.CheckboxLabeled("Sort by memory allocations", ref settings.sortByMemAlloc);
-                }
+                    lister.CheckboxLabeled("  Sort by memory allocations", ref settings.sortByMemAlloc);
             }
             // perfomance mode
             Rect checkboxRect = lister.GetRect(Text.LineHeight),
@@ -239,6 +245,7 @@ namespace HarmonyProfiler.UI
             if (lister.ButtonText($"Stop profiling", Text.LineHeight))
             {
                 Profiler.Logger.LogOperation("ResetProfiling", Patcher.UnpatchAll);
+                PatchHandler.ClearGetMethodByKey();
             }
         }
 
@@ -282,6 +289,61 @@ namespace HarmonyProfiler.UI
                 Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>(getOptions())));
             }
 
+            // Method resolver. Handle string >= 3 chars. Results show after 2 sec. when str not changed. Has filter AND, example: 'pawn tick' => Verse.Pawn:Tick
+            {
+                var prevStr = _methodResolver;
+                Rect labelRect = lister.GetRect(Text.LineHeight),
+                    textEntyRect = labelRect;
+
+                float width = labelRect.width;
+                labelRect.width = width / 3;
+                textEntyRect.width = 2 * width / 3;
+                textEntyRect.x = labelRect.xMax;
+                Widgets.Label(labelRect, $"Method resolver");
+                _methodResolver = Widgets.TextArea(textEntyRect, _methodResolver);
+                if (!String.IsNullOrWhiteSpace(_methodResolver) && _methodResolver.Length >= 4)
+                {
+                    if (!prevStr.Equals(_methodResolver))
+                        _methodResolverInputTimer = Stopwatch.StartNew();
+                }
+                else _methodResolverInputTimer = null;
+
+                if (_methodResolverInputTimer != null &&
+                    _methodResolverInputTimer.ElapsedMilliseconds > 1500)
+                {
+                    var strLower = _methodResolver.ToLower();
+                    var arrFilters = strLower.Split(new[] {" "}, StringSplitOptions.RemoveEmptyEntries);
+                    var allMethods = Utils.GetAllMethods();
+
+                    IEnumerable<string> filterMethods()
+                    {
+                        if (_methodResolverCache == null)
+                        {
+                            _methodResolverCache = allMethods
+                                .OrderBy(x => x)
+                                .Select(x => (x, x.ToLower()))
+                                .ToList();
+                        }
+                        foreach (var m in (from tuple in _methodResolverCache
+                            where arrFilters.All(x => tuple.nameLower.Contains(x))
+                            select tuple))
+                        {
+                            yield return m.name;
+                        }
+                    }
+                    IEnumerable<FloatMenuOption> makeVariants(int maxResult)
+                    {
+                        foreach (var m in filterMethods().OrderBy(x => x))
+                        {
+                            if (maxResult-- < 0) break;
+                            yield return new FloatMenuOption(m, () => _methodResolver = m);
+                        }
+                    }
+
+                    Find.WindowStack.Add(new FloatMenu(new List<FloatMenuOption>(makeVariants(20))));
+                    _methodResolverInputTimer = null;
+                }
+            }
             lister.CheckboxLabeled("CRASH DEBUG", ref settings.debug);
             lister.Gap(20f);
         }
@@ -371,7 +433,7 @@ namespace HarmonyProfiler.UI
                     stopUpdate = true;
                 }
 
-                lister.Label($"  TimeSpent:{r.TimeSpent}ms AvgTick:{r.AvgTime}ms Ticks:{r.TicksNum}");
+                lister.Label($"  TimeSpent:{r.TimeSpent}ms AvgTick:{r.AvgTime:0.00000}ms Ticks:{r.TicksNum}");
             }
             Text.Font = backFont;
 
@@ -388,6 +450,10 @@ namespace HarmonyProfiler.UI
             TooltipHandler.TipRegion(rect, tooltip);
             return Widgets.ButtonText(rect, text);
         }
+
+        private Stopwatch _methodResolverInputTimer;
+        private string _methodResolver;
+        private List<(string name, string nameLower)> _methodResolverCache;
 
         private bool stopUpdate = false;
         private List<StopwatchRecord> cached;

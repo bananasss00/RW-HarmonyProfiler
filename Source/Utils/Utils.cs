@@ -3,12 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using HarmonyLib;
 using Verse;
 
 namespace HarmonyProfiler
 {
     public static class Utils
     {
+        private static List<string> _allMethodNames;
+
         public static string GetParametersString(this MethodBase method) =>
             string.Join(",", method.GetParameters().Select(o => $"{o.ParameterType.Name} {o.Name}").ToArray());
 
@@ -94,6 +97,24 @@ namespace HarmonyProfiler
                 }
             }
         }
+
+
+        public static List<string> GetAllMethods()
+        {
+            if (_allMethodNames != null)
+                return _allMethodNames;
+
+            _allMethodNames = new List<string>();
+            foreach (var type in GenTypes.AllTypes)
+            {
+                foreach (var mi in type.GetMethods(AccessTools.all))
+                {
+                    _allMethodNames.Add($"{type.FullName}:{mi.Name}");
+                }
+            }
+            return _allMethodNames;
+        }
+
 
         public static string GetAllDefsList(string[] modNames)
         {

@@ -30,12 +30,15 @@ namespace HarmonyProfiler
         public bool allowInheritedMethods = true;
         public bool collectMemAlloc = true;
         public bool sortByMemAlloc = false;
+        public bool checkMainThread = true;
+        public bool profilerTranspileMode = true;
+        public bool getOriginalFromDict = false;
         public bool debug = false;
         public CfgDef cfgDef;
 
         public bool perfomanceMode = false;
-        public float ruleTiming = 0.01f;
-        public int ruleTicks = 100;
+        public float ruleTiming = 0.002f;
+        public int ruleTicks = 1000;
         public string ruleTimingBuf, ruleTicksBuf;
     }
 }

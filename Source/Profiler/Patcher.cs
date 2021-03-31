@@ -22,6 +22,9 @@ namespace HarmonyProfiler.Profiler
         private static readonly HarmonyMethod MethodPostfix =
             new HarmonyMethod(PatchHandler.PatchStopMethod) {priority = int.MaxValue};
 
+        private static readonly HarmonyMethod MethodTranspiler =
+            new HarmonyMethod(PatchHandler.PatchTranspilerMethod) {priority = int.MaxValue};
+
         // prevent multi patch and unpatching
         private static readonly HashSet<MethodBase> PatchedMethods = new HashSet<MethodBase>();
 
@@ -83,7 +86,8 @@ namespace HarmonyProfiler.Profiler
                 try
                 {
                     //File.AppendAllText($"z:/aaa.log", method.GetMethodFullString() + "\n");
-                    if (Settings.Get().debug)
+                    var settings = Settings.Get();
+                    if (settings.debug)
                     {
                         if (++_messagesCount % 500 == 0)
                         {
@@ -92,8 +96,10 @@ namespace HarmonyProfiler.Profiler
 
                         Log.Error($"[TryAddProfiler] Try patch method => {method.GetMethodFullString()}");
                     }
-
-                    HarmonyMain.Instance.Patch(method, prefix: MethodPrefix, postfix: MethodPostfix);
+                    if (settings.profilerTranspileMode)
+                        HarmonyMain.Instance.Patch(method, transpiler: MethodTranspiler);
+                    else
+                        HarmonyMain.Instance.Patch(method, prefix: MethodPrefix, postfix: MethodPostfix);
                     return true;
                 }
                 catch (Exception e)
